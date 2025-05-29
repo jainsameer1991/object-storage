@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Distributed Object Storage</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #333;
+      }
+      
+      .container {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        padding: 2rem;
+        width: 100%;
+        max-width: 500px;
+        margin: 1rem;
+      }
+      
+      .header {
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+      
+      .header h1 {
+        font-size: 1.8rem;
+        font-weight: 600;
+        color: #2d3748;
+        margin-bottom: 0.5rem;
+      }
+      
+      .header p {
+        color: #718096;
+        font-size: 0.9rem;
+      }
+      
+      .upload-section {
+        margin-bottom: 2rem;
+      }
+      
+      .upload-area {
+        border: 2px dashed #cbd5e0;
+        border-radius: 8px;
+        padding: 2rem;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: #f7fafc;
+      }
+      
+      .upload-area:hover {
+        border-color: #667eea;
+        background: #edf2f7;
+      }
+      
+      .upload-area.dragover {
+        border-color: #667eea;
+        background: #ebf8ff;
+      }
+      
+      .upload-icon {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        color: #a0aec0;
+      }
+      
+      .upload-text {
+        color: #4a5568;
+        margin-bottom: 0.5rem;
+      }
+      
+      .upload-subtext {
+        color: #718096;
+        font-size: 0.8rem;
+      }
+      
+      .file-input {
+        display: none;
+      }
+      
+      .btn {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: transform 0.2s ease;
+        width: 100%;
+        margin-top: 1rem;
+      }
+      
+      .btn:hover {
+        transform: translateY(-1px);
+      }
+      
+      .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+      
+      .status-section {
+        margin-top: 2rem;
+        padding-top: 2rem;
+        border-top: 1px solid #e2e8f0;
+      }
+      
+      .status-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.75rem;
+        background: #f7fafc;
+        border-radius: 6px;
+        margin-bottom: 0.5rem;
+        font-size: 0.9rem;
+      }
+      
+      .status-success {
+        background: #f0fff4;
+        color: #22543d;
+      }
+      
+      .status-error {
+        background: #fed7d7;
+        color: #742a2a;
+      }
+      
+      .status-processing {
+        background: #ebf8ff;
+        color: #2a4365;
+      }
+      
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🗄️ Object Storage</h1>
+        <p>Distributed file storage simulation</p>
+      </div>
+      
+      <div class="upload-section">
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-icon">📁</div>
+          <div class="upload-text">Drop files here or click to browse</div>
+          <div class="upload-subtext">Supports all file types</div>
+        </div>
+        <input type="file" id="fileInput" class="file-input" multiple>
+        <button class="btn" id="uploadBtn" disabled>Upload Selected Files</button>
+      </div>
+      
+      <div class="status-section" id="statusSection">
+        <h3 style="margin-bottom: 1rem; color: #2d3748; font-size: 1rem;">Storage Status</h3>
+        <div id="statusList">
+          <div class="status-item">
+            <span>🟢 Front-End Service</span>
+            <span>Ready</span>
+          </div>
+          <div class="status-item">
+            <span>🟢 Partition Manager</span>
+            <span>Active</span>
+          </div>
+          <div class="status-item">
+            <span>🟢 Extent Nodes</span>
+            <span>3 Available</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
