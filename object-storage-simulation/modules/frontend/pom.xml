@@ -6,8 +6,9 @@
         <groupId>com.objectstorage</groupId>
         <artifactId>object-storage-simulation</artifactId>
         <version>1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
-    <artifactId>extent-node</artifactId>
+    <artifactId>frontend</artifactId>
     <packaging>jar</packaging>
     <dependencies>
         <dependency>

@@ -6,8 +6,9 @@
         <groupId>com.objectstorage</groupId>
         <artifactId>object-storage-simulation</artifactId>
         <version>1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
-    <artifactId>stream-manager</artifactId>
+    <artifactId>partition-manager</artifactId>
     <packaging>jar</packaging>
     <dependencies>
         <dependency>
