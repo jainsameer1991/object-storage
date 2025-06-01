@@ -1,9 +1,3 @@
-# object-storage
-
-Object storage is a data storage architecture that manages data as objects, as opposed to other storage architectures like file systems which manage data as a file hierarchy, or block storage which manages data as blocks within sectors and tracks. Each object typically includes the data itself, a variable amount of metadata, and a unique identifier. Object storage is highly scalable and is commonly used for storing large amounts of unstructured data such as photos, videos, backups, and log files. Popular examples include Amazon S3, Google Cloud Storage, and Azure Blob Storage.
-
----
-
 ## Distributed Object Storage Simulation (Java 21 & Spring Boot 3.x)
 
 This project simulates a distributed object storage system inspired by modern cloud architectures, using Java 21 and Spring Boot 3.x. The simulation models the data flow and core components of a scalable, highly available, and strongly consistent object storage backend.

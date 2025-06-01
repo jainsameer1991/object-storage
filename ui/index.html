@@ -155,41 +155,7 @@
     </style>
   </head>
   <body>
-    <div class="container">
-      <div class="header">
-        <h1>🗄️ Object Storage</h1>
-        <p>Distributed file storage simulation</p>
-      </div>
-      
-      <div class="upload-section">
-        <div class="upload-area" id="uploadArea">
-          <div class="upload-icon">📁</div>
-          <div class="upload-text">Drop files here or click to browse</div>
-          <div class="upload-subtext">Supports all file types</div>
-        </div>
-        <input type="file" id="fileInput" class="file-input" multiple>
-        <button class="btn" id="uploadBtn" disabled>Upload Selected Files</button>
-      </div>
-      
-      <div class="status-section" id="statusSection">
-        <h3 style="margin-bottom: 1rem; color: #2d3748; font-size: 1rem;">Storage Status</h3>
-        <div id="statusList">
-          <div class="status-item">
-            <span>🟢 Front-End Service</span>
-            <span>Ready</span>
-          </div>
-          <div class="status-item">
-            <span>🟢 Partition Manager</span>
-            <span>Active</span>
-          </div>
-          <div class="status-item">
-            <span>🟢 Extent Nodes</span>
-            <span>3 Available</span>
-          </div>
-        </div>
-      </div>
-    </div>
-    
+    <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
