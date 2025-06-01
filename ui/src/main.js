@@ -7,6 +7,8 @@ class ObjectStorageUI {
     this.statuses = [];
     this.systemStatus = [];
     this.migrationLog = [];
+    this.partitionServers = [];
+    this.pmLeaderLog = [];
     this.init();
   }
 
@@ -42,6 +44,11 @@ class ObjectStorageUI {
             <div id="controlPanel"></div>
             <div id="migrationLog"></div>
           </section>
+          <section class="partition-server-section">
+            <h2>Partition Manager</h2>
+            <div class="partition-server-list" id="partitionServerList"></div>
+            <div class="pm-leader-log" id="pmLeaderLog"></div>
+          </section>
           <section class="files-section">
             <h2>Files <span class="file-count" id="fileCount">(0)</span></h2>
             <div class="files-list" id="filesList">
@@ -56,10 +63,29 @@ class ObjectStorageUI {
     `;
     await this.fetchSystemStatus();
     await this.fetchFiles();
+    await this.fetchPartitionServers();
+    await this.fetchPmLeaderElectionLog();
     this.renderDiagram();
     this.setupUploadSimulation();
     this.setupGetSimulation();
     this.setupControlPanel();
+    this.renderPartitionServers();
+    this.renderPmLeaderElectionLog();
+    const testBtn = document.createElement('button');
+    testBtn.textContent = 'Test Left Arrow';
+    testBtn.style.position = 'fixed';
+    testBtn.style.top = '10px';
+    testBtn.style.right = '10px';
+    testBtn.onclick = () => {
+      const arrow = document.getElementById('arrow2');
+      if (arrow) {
+        arrow.textContent = '←';
+        console.log('Set arrow2 to ←, now textContent is:', arrow.textContent);
+      } else {
+        console.log('arrow2 not found');
+      }
+    };
+    document.body.appendChild(testBtn);
   }
 
   async fetchSystemStatus() {
@@ -70,11 +96,33 @@ class ObjectStorageUI {
       this.systemStatus = [];
     }
     this.renderDiagram();
+    await this.fetchPartitionServers();
+    await this.fetchPmLeaderElectionLog();
   }
 
   async fetchMigrationLog() {
     // For now, migration info is only returned on POST, so we keep a local log
     return this.migrationLog || [];
+  }
+
+  async fetchPartitionServers() {
+    try {
+      const res = await fetch('http://localhost:8080/files/partition-servers');
+      this.partitionServers = await res.json();
+    } catch (e) {
+      this.partitionServers = [];
+    }
+    this.renderPartitionServers();
+  }
+
+  async fetchPmLeaderElectionLog() {
+    try {
+      const res = await fetch('http://localhost:8080/files/partition-manager/leader-election-log');
+      this.pmLeaderLog = await res.json();
+    } catch (e) {
+      this.pmLeaderLog = [];
+    }
+    this.renderPmLeaderElectionLog();
   }
 
   async setupControlPanel() {
@@ -112,6 +160,27 @@ class ObjectStorageUI {
         this.renderControlPanel();
         this.renderFiles();
         this.renderDiagram();
+        await this.fetchPartitionServers();
+        await this.fetchPmLeaderElectionLog();
+        // If Partition Manager was brought down, poll for status/log update
+        if (name === 'Partition Manager' && newStatus === 'down') {
+          let pollCount = 0;
+          const poll = async () => {
+            pollCount++;
+            await this.fetchSystemStatus();
+            await this.fetchPartitionServers();
+            await this.fetchPmLeaderElectionLog();
+            this.renderControlPanel();
+            const pm = this.systemStatus.find(c => c.name === 'Partition Manager');
+            const logHasComplete = (this.pmLeaderLog || []).some(l => l.includes('Leader election complete'));
+            if ((pm && pm.status === 'up' && logHasComplete) || pollCount >= 6) {
+              return;
+            } else {
+              setTimeout(poll, 200);
+            }
+          };
+          poll();
+        }
       });
     });
     this.showMigrationLog();
@@ -226,7 +295,11 @@ class ObjectStorageUI {
         <div class="file-icon">${this.getFileIcon(file.name)}</div>
         <div class="file-info">
           <div class="file-name">${file.name}</div>
-          <div class="file-details">Stored at: <b>${file.location}</b></div>
+          <div class="file-details">
+            <b>Primary:</b> <span class="extent-primary">${file.primary || '-'}</span><br>
+            <b>Secondary 1:</b> <span class="extent-secondary">${file.secondary1 || '-'}</span><br>
+            <b>Secondary 2:</b> <span class="extent-secondary">${file.secondary2 || '-'}</span>
+          </div>
         </div>
       </div>
     `).join('');
@@ -285,46 +358,133 @@ class ObjectStorageUI {
         const data = await res.json();
         getSimulation.innerHTML = this.getDiagramHtml(data.components);
         const path = data.path;
+        // --- Custom simulation steps for FE->PM, FE<-PM, FE->PS ---
+        let customPath = [];
+        if (path.length >= 3) {
+          // FE -> PM
+          customPath.push({ from: path[0], to: path[1], dir: 'right' });
+          // FE <- PM
+          customPath.push({ from: path[1], to: path[0], dir: 'left' });
+          // FE -> PS (X)
+          customPath.push({ from: path[0], to: path[2], dir: 'right' });
+          // Continue with rest of path (from PS onwards)
+          for (let i = 2; i < path.length - 1; i++) {
+            customPath.push({ from: path[i], to: path[i+1], dir: 'right' });
+          }
+        } else {
+          // fallback to default path
+          for (let i = 0; i < path.length - 1; i++) {
+            customPath.push({ from: path[i], to: path[i+1], dir: 'right' });
+          }
+        }
+        // Highlight FE node first
         let i = 0;
+        const feBox = document.getElementById('frontend');
+        if (feBox) {
+          feBox.classList.add('active');
+          setTimeout(() => {
+            feBox.classList.remove('active');
+            highlightStep();
+          }, 600);
+        } else {
+          highlightStep();
+        }
         function highlightStep() {
-          document.querySelectorAll('.diagram-arrow').forEach(a => a.classList.remove('active-arrow', 'arrow-left', 'arrow-right'));
+          // Reset all arrows to default (→) except the current one
+          document.querySelectorAll('.diagram-arrow').forEach(a => {
+            a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
+          });
           document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
-          if (i < path.length) {
-            const boxId = getBoxIdByName(path[i]);
-            if (boxId) {
+          if (i < customPath.length) {
+            const fromId = getBoxIdByName(customPath[i].from);
+            const toId = getBoxIdByName(customPath[i].to);
+            if (toId) {
               document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
-              document.getElementById(boxId).classList.add('active');
+              document.getElementById(toId).classList.add('active');
             }
-            if (i > 0) {
-              const arrowId = `arrow${i}`;
+            // Find the arrow between from and to
+            let arrowId = null;
+            if (fromId && toId) {
+              if (fromId === 'frontend' && toId === 'partition') arrowId = 'arrow1';
+              else if (fromId === 'partition' && toId === 'frontend') arrowId = 'arrow1';
+              else if (fromId === 'frontend' && toId.startsWith('partitionserver')) arrowId = 'arrow2';
+              else if (fromId === 'partition' && toId.startsWith('partitionserver')) arrowId = 'arrow2';
+              else if (fromId.startsWith('partitionserver') && toId === 'streammanager') arrowId = 'arrow3';
+              else if (fromId === 'streammanager' && toId.startsWith('extent')) arrowId = 'arrow4';
+            }
+            if (arrowId) {
               const arrowEl = document.getElementById(arrowId);
               if (arrowEl) {
                 arrowEl.classList.add('active-arrow', 'arrow-right');
-                arrowEl.textContent = '→';
+                setArrowDirection(arrowEl, 'right');
               }
             }
             i++;
             setTimeout(highlightStep, 800);
           } else {
-            let j = path.length - 1;
+            // Only reverse-animate the main request path (skip handshake steps)
+            let handshakeSteps = 0;
+            if (customPath.length >= 3 && customPath[0].from === 'Front-End Service' && customPath[0].to === 'Partition Manager' && customPath[1].from === 'Partition Manager' && customPath[1].to === 'Front-End Service') {
+              handshakeSteps = 2;
+            }
+            let j = customPath.length - 1;
             function highlightReturn() {
-              document.querySelectorAll('.diagram-arrow').forEach(a => a.classList.remove('active-arrow', 'arrow-left', 'arrow-right'));
+              console.log('highlightReturn called, j =', j, 'handshakeSteps =', handshakeSteps);
+              document.querySelectorAll('.diagram-arrow').forEach(a => {
+                a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
+                setArrowDirection(a, 'right');
+              });
               document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active', 'return'));
-              if (j > 0) {
-                const boxId = getBoxIdByName(path[j-1]);
-                if (boxId) {
+              if (j >= handshakeSteps) {
+                const fromId = getBoxIdByName(customPath[j].from);
+                if (fromId) {
                   document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('return'));
-                  document.getElementById(boxId).classList.add('return');
+                  document.getElementById(fromId).classList.add('return');
                 }
-                const arrowId = `arrow${j}`;
-                const arrowEl = document.getElementById(arrowId);
-                if (arrowEl) {
-                  arrowEl.classList.add('active-arrow', 'arrow-left');
-                  arrowEl.textContent = '←';
+                // Use the same arrow logic as above
+                let arrowId = null;
+                const step = customPath[j];
+                console.log('Return step:', step && step.from, '->', step && step.to);
+                // Swap for return path
+                const returnFrom = step && step.to;
+                const returnTo = step && step.from;
+                if (
+                  (returnFrom === 'Front-End Service' && returnTo === 'Partition Manager') ||
+                  (returnFrom === 'Partition Manager' && returnTo === 'Front-End Service')
+                ) arrowId = 'arrow1';
+                else if (
+                  (returnFrom === 'Front-End Service' && returnTo.startsWith('Partition Server')) ||
+                  (returnFrom.startsWith('Partition Server') && returnTo === 'Front-End Service') ||
+                  (returnFrom === 'Partition Manager' && returnTo.startsWith('Partition Server')) ||
+                  (returnFrom.startsWith('Partition Server') && returnTo === 'Partition Manager')
+                ) arrowId = 'arrow2';
+                else if (
+                  (returnFrom.startsWith('Partition Server') && returnTo === 'Stream Manager') ||
+                  (returnFrom === 'Stream Manager' && returnTo.startsWith('Partition Server'))
+                ) arrowId = 'arrow3';
+                else if (
+                  (returnFrom === 'Stream Manager' && returnTo.startsWith('Extent Node')) ||
+                  (returnFrom.startsWith('Extent Node') && returnTo === 'Stream Manager')
+                ) arrowId = 'arrow4';
+                // After arrowId logic
+                console.log('Matching:', {returnFrom, returnTo, arrowId});
+                if (arrowId) {
+                  const arrowEl = document.getElementById(arrowId);
+                  if (arrowEl) {
+                    arrowEl.classList.remove('arrow-right');
+                    arrowEl.classList.add('active-arrow', 'arrow-left');
+                    console.log('Setting left arrow for', arrowId, 'at j =', j);
+                    setArrowDirection(arrowEl, 'left');
+                  }
                 }
                 j--;
                 setTimeout(highlightReturn, 600);
               } else {
+                // Reset all after response
+                document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active', 'return'));
+                document.querySelectorAll('.diagram-arrow').forEach(a => {
+                  a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
+                });
                 const resultDiv = document.createElement('div');
                 if (data.result === 'success') {
                   resultDiv.className = 'success get-result';
@@ -339,13 +499,6 @@ class ObjectStorageUI {
                   resultDiv.style.transition = 'opacity 0.7s, box-shadow 0.7s';
                   resultDiv.style.opacity = 1;
                   resultDiv.style.boxShadow = '0 0 16px 2px #764ba2';
-                  setTimeout(() => {
-                    document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active', 'return'));
-                    document.querySelectorAll('.diagram-arrow').forEach(a => {
-                      a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
-                      a.textContent = '→';
-                    });
-                  }, 1200);
                 }, 400);
               }
             }
@@ -355,9 +508,9 @@ class ObjectStorageUI {
         function getBoxIdByName(name) {
           if (name === 'Front-End Service') return 'frontend';
           if (name === 'Partition Manager') return 'partition';
-          if (name === 'Extent Node 1') return 'extent1';
-          if (name === 'Extent Node 2') return 'extent2';
-          if (name === 'Extent Node 3') return 'extent3';
+          if (name === 'Stream Manager') return 'streammanager';
+          if (name.startsWith('Partition Server')) return 'partitionserver' + name.split(' ')[2];
+          if (name.startsWith('Extent Node')) return 'extent' + name.split(' ')[2];
           return null;
         }
         data.components.forEach((comp, idx) => {
@@ -366,7 +519,7 @@ class ObjectStorageUI {
             document.getElementById(boxId).classList.add('down');
           }
         });
-        highlightStep();
+        document.querySelectorAll('.diagram-arrow').forEach(a => setArrowDirection(a, 'right'));
       } catch (err) {
         getSimulation.innerHTML = '<div class="error">Error simulating GET request.</div>';
       }
@@ -378,28 +531,52 @@ class ObjectStorageUI {
     const comps = components || [
       { name: 'Front-End Service', status: 'up' },
       { name: 'Partition Manager', status: 'up' },
+      { name: 'Partition Server 1', status: 'up' },
+      { name: 'Partition Server 2', status: 'up' },
+      { name: 'Partition Server 3', status: 'up' },
+      { name: 'Stream Manager', status: 'up' },
       { name: 'Extent Node 1', status: 'up' },
       { name: 'Extent Node 2', status: 'up' },
       { name: 'Extent Node 3', status: 'up' },
+      { name: 'Extent Node 4', status: 'up' },
+      { name: 'Extent Node 5', status: 'up' },
     ];
-    // Find each
+    // Find each group
     const frontend = comps.find(c => c.name === 'Front-End Service');
     const partition = comps.find(c => c.name === 'Partition Manager');
+    const partitionServers = comps.filter(c => c.name.startsWith('Partition Server'));
+    const streamManager = comps.find(c => c.name === 'Stream Manager');
     const extents = comps.filter(c => c.name.startsWith('Extent Node'));
-    // Add arrow IDs for animation
-    let html = `<div class="get-diagram diagram-row-grouped">
-      <div class="diagram-box" id="frontend">Front-End Service</div>
-      <div class="diagram-arrow" id="arrow1">→</div>
-      <div class="diagram-box" id="partition">Partition Manager</div>
-      <div class="diagram-arrow" id="arrow2">→</div>
-      <div class="extent-group-box">`;
-    extents.forEach((e, i) => {
-      html += `<div class=\"diagram-box extent-node-box\" id=\"extent${i+1}\">${e.name}</div>`;
-      if (i < extents.length - 1) {
-        html += `<div class=\"diagram-arrow\" id=\"arrow${3 + i}\">→</div>`;
-      }
+    // Diagram layout: horizontal row, with vertical stacks for partition servers and extent nodes
+    let html = `<div class="get-diagram diagram-row-aligned">
+      <div class="diagram-col">
+        <div class="diagram-box" id="frontend">Front-End<br>Service</div>
+      </div>
+      <div class="multi-arrow diagram-arrow" id="arrow1"><span class="arrow-right-el">→</span><span class="arrow-left-el" style="display:none;">←</span></div>
+      <div class="diagram-col">
+        <div class="diagram-box" id="partition">Partition<br>Manager</div>
+      </div>
+      <div class="multi-arrow diagram-arrow" id="arrow2"><span class="arrow-right-el">→</span><span class="arrow-left-el" style="display:none;">←</span></div>
+      <div class="diagram-col diagram-col-center">
+        <div class="diagram-group-label">Partition Servers</div>
+        <div class="partition-stack-vertical">`;
+    partitionServers.forEach((ps, i) => {
+      html += `<div class="diagram-box partition-server-box small-box" id="partitionserver${i+1}">${ps.name}</div>`;
     });
-    html += `</div></div>`;
+    html += `</div></div>
+      <div class="multi-arrow diagram-arrow" id="arrow3"><span class="arrow-right-el">→</span><span class="arrow-left-el" style="display:none;">←</span></div>
+      <div class="diagram-col">
+        <div class="diagram-box" id="streammanager">Stream<br>Manager</div>
+      </div>
+      <div class="multi-arrow diagram-arrow" id="arrow4"><span class="arrow-right-el">→</span><span class="arrow-left-el" style="display:none;">←</span></div>
+      <div class="diagram-col diagram-col-extents">
+        <div class="extent-heading-stack">
+          <div class="extent-heading-center"><span class="diagram-group-label">Extent Nodes</span></div>
+          <div class="extent-stack-vertical">`;
+    extents.forEach((e, i) => {
+      html += `<div class="diagram-box extent-node-box small-box" id="extent${i+1}">${e.name}</div>`;
+    });
+    html += `</div></div></div>`;
     return html;
   }
 
@@ -420,13 +597,58 @@ class ObjectStorageUI {
   getBoxIdByName(name) {
     if (name === 'Front-End Service') return 'frontend';
     if (name === 'Partition Manager') return 'partition';
-    if (name === 'Extent Node 1') return 'extent1';
-    if (name === 'Extent Node 2') return 'extent2';
-    if (name === 'Extent Node 3') return 'extent3';
+    if (name === 'Stream Manager') return 'streammanager';
+    if (name.startsWith('Partition Server')) return 'partitionserver' + name.split(' ')[2];
+    if (name.startsWith('Extent Node')) return 'extent' + name.split(' ')[2];
     return null;
+  }
+
+  renderPartitionServers() {
+    const psList = document.getElementById('partitionServerList');
+    if (!psList) return;
+    if (!this.partitionServers || this.partitionServers.length === 0) {
+      psList.innerHTML = `<div class="empty-state"><div class="empty-icon">🗄️</div><p>No partition servers available</p></div>`;
+      return;
+    }
+    psList.innerHTML = this.partitionServers.map(ps => `
+      <div class="partition-server-item${ps.status === 'down' ? ' down' : ''}">
+        <span class="status-light ${ps.status}"></span>
+        <span class="ps-name">${ps.name}</span>
+        <span class="ps-status">(${ps.status})</span>
+        <div class="ps-files">
+          <span class="ps-files-label">Files:</span>
+          <span class="ps-files-list">${ps.files.length > 0 ? ps.files.map(f => `<span class="ps-file">${f}</span>`).join(', ') : '<i>None</i>'}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  renderPmLeaderElectionLog() {
+    const logDiv = document.getElementById('pmLeaderLog');
+    if (!logDiv) return;
+    if (!this.pmLeaderLog || this.pmLeaderLog.length === 0) {
+      logDiv.innerHTML = '';
+      return;
+    }
+    logDiv.innerHTML = `<div class="pm-leader-log-title">Partition Manager Leader Election Log:</div>` +
+      this.pmLeaderLog.map(entry => `<div class="pm-leader-log-entry">${entry}</div>`).join('');
   }
 }
 
 // Initialize the application
 const app = new ObjectStorageUI();
 window.app = app;
+
+function setArrowDirection(arrowEl, dir) {
+  const right = arrowEl.querySelector('.arrow-right-el');
+  const left = arrowEl.querySelector('.arrow-left-el');
+  if (!right || !left) return;
+  if (dir === 'right') {
+    right.style.display = '';
+    left.style.display = 'none';
+  } else {
+    right.style.display = 'none';
+    left.style.display = '';
+  }
+  console.log('setArrowDirection:', arrowEl.id, dir);
+}
