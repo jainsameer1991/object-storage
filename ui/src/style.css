@@ -166,7 +166,7 @@ button:focus-visible {
   transform: rotate(0deg);
 }
 .diagram-arrow.arrow-left {
-  transform: rotate(180deg);
+  /* transform: rotate(180deg); */
 }
 .diagram-arrow:not(.active-arrow) {
   opacity: 0.2;
@@ -589,4 +589,19 @@ section h2 {
     font-size: 0.95rem;
     padding: 8px 0.7rem;
   }
+}
+
+.extent-heading-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 0.2rem;
+}
+
+.extent-heading-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
 }
