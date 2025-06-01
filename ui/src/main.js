@@ -71,21 +71,6 @@ class ObjectStorageUI {
     this.setupControlPanel();
     this.renderPartitionServers();
     this.renderPmLeaderElectionLog();
-    const testBtn = document.createElement('button');
-    testBtn.textContent = 'Test Left Arrow';
-    testBtn.style.position = 'fixed';
-    testBtn.style.top = '10px';
-    testBtn.style.right = '10px';
-    testBtn.onclick = () => {
-      const arrow = document.getElementById('arrow2');
-      if (arrow) {
-        arrow.textContent = '←';
-        console.log('Set arrow2 to ←, now textContent is:', arrow.textContent);
-      } else {
-        console.log('arrow2 not found');
-      }
-    };
-    document.body.appendChild(testBtn);
   }
 
   async fetchSystemStatus() {
@@ -348,180 +333,136 @@ class ObjectStorageUI {
           this.renderDiagram();
         }
       }
+      // Always fetch and render real system status before simulation
+      await this.fetchSystemStatus();
+      this.renderDiagram();
       // Now simulate GET
+      // New backend-driven simulation flow with animation
+      // 1. Render diagram (already done above)
+      // Helper to highlight a box
+      function highlightBox(id) {
+        document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
+        const el = document.getElementById(id);
+        if (el) el.classList.add('active');
+      }
+      // Helper to highlight an arrow
+      function highlightArrow(id, dir) {
+        document.querySelectorAll('.diagram-arrow').forEach(a => a.classList.remove('active-arrow', 'arrow-left', 'arrow-right'));
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.add('active-arrow', dir === 'right' ? 'arrow-right' : 'arrow-left');
+          setArrowDirection(el, dir);
+        }
+      }
+      // Helper to mark a box as down
+      function markDown(id) {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('down');
+      }
+      // Animation sequence
       try {
-        const res = await fetch('http://localhost:8080/files/simulate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename })
-        });
-        const data = await res.json();
-        getSimulation.innerHTML = this.getDiagramHtml(data.components);
-        const path = data.path;
-        // --- Custom simulation steps for FE->PM, FE<-PM, FE->PS ---
-        let customPath = [];
-        if (path.length >= 3) {
-          // FE -> PM
-          customPath.push({ from: path[0], to: path[1], dir: 'right' });
-          // FE <- PM
-          customPath.push({ from: path[1], to: path[0], dir: 'left' });
-          // FE -> PS (X)
-          customPath.push({ from: path[0], to: path[2], dir: 'right' });
-          // Continue with rest of path (from PS onwards)
-          for (let i = 2; i < path.length - 1; i++) {
-            customPath.push({ from: path[i], to: path[i+1], dir: 'right' });
-          }
-        } else {
-          // fallback to default path
-          for (let i = 0; i < path.length - 1; i++) {
-            customPath.push({ from: path[i], to: path[i+1], dir: 'right' });
-          }
-        }
-        // Highlight FE node first
-        let i = 0;
-        const feBox = document.getElementById('frontend');
-        if (feBox) {
-          feBox.classList.add('active');
-          setTimeout(() => {
-            feBox.classList.remove('active');
-            highlightStep();
-          }, 600);
-        } else {
-          highlightStep();
-        }
-        function highlightStep() {
-          // Reset all arrows to default (→) except the current one
-          document.querySelectorAll('.diagram-arrow').forEach(a => {
-            a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
+        // Step 1: FE -> PM
+        highlightBox('frontend');
+        highlightArrow('arrow1', 'right');
+        await new Promise(res => setTimeout(res, 600));
+        // Step 2: PM processes request
+        highlightBox('partition');
+        await new Promise(res => setTimeout(res, 400));
+        // Backend call: get partition server for file
+        const pmRes = await fetch('http://localhost:8080/partition-manager/partition-for-key?key=' + encodeURIComponent(filename));
+        if (!pmRes.ok) throw { step: 'partition', msg: 'Partition Manager unavailable' };
+        const pmData = await pmRes.json();
+        const partitionServer = pmData.partitionServer;
+        // Step 3: PM -> FE (response)
+        highlightBox('frontend');
+        highlightArrow('arrow1', 'left');
+        await new Promise(res => setTimeout(res, 600));
+        // Step 4: FE -> PS
+        const psId = 'partitionserver' + (partitionServer && partitionServer.split(' ')[2]);
+        highlightBox(psId);
+        highlightArrow('arrow2', 'right');
+        await new Promise(res => setTimeout(res, 600));
+        // Backend call: get file metadata
+        const psRes = await fetch('http://localhost:8080/partition-server/file/' + encodeURIComponent(filename));
+        if (!psRes.ok) throw { step: psId, msg: 'Partition Server unavailable' };
+        const psData = await psRes.json();
+        // Step 5: PS -> SM
+        highlightBox('streammanager');
+        highlightArrow('arrow3', 'right');
+        await new Promise(res => setTimeout(res, 600));
+        // Backend call: get file from stream manager
+        let smRes, smData;
+        try {
+          smRes = await fetch('http://localhost:8080/stream-manager/get-file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename })
           });
+          if (!smRes.ok) {
+            let errMsg = 'Stream Manager unavailable';
+            try {
+              const errJson = await smRes.json();
+              if (errJson && errJson.error) errMsg = errJson.error;
+            } catch {}
+            throw { step: 'streammanager', msg: errMsg };
+          }
+          smData = await smRes.json();
+        } catch (err) {
+          throw { step: 'streammanager', msg: err.msg || err.message || 'Stream Manager unavailable' };
+        }
+        // Step 6: SM -> EN
+        const enId = 'extent' + (smData.extentNodeId ? smData.extentNodeId.split(' ')[2] : '1');
+        highlightBox(enId);
+        highlightArrow('arrow4', 'right');
+        await new Promise(res => setTimeout(res, 600));
+        // Backend call: get file chunk from extent node
+        let enRes, enData;
+        try {
+          enRes = await fetch('http://localhost:8080/extent-node/retrieve/' + encodeURIComponent(smData.extentNodeId));
+          if (!enRes.ok) {
+            let errMsg = 'Extent Node unavailable';
+            try {
+              const errJson = await enRes.json();
+              if (errJson && errJson.error) errMsg = errJson.error;
+            } catch {}
+            throw { step: enId, msg: errMsg };
+          }
+          enData = await enRes.json();
+        } catch (err) {
+          throw { step: enId, msg: err.msg || err.message || 'Extent Node unavailable' };
+        }
+
+        // Return flow animation (reverse order of backend calls)
+        const returnSteps = [
+          { box: enId, arrow: 'arrow4', dir: 'left' },
+          { box: 'streammanager', arrow: 'arrow3', dir: 'left' },
+          { box: psId, arrow: 'arrow2', dir: 'left' },
+          { box: 'frontend', arrow: 'arrow1', dir: 'left' }
+        ];
+        let k = 0;
+        function animateReturnStep() {
           document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
-          if (i < customPath.length) {
-            const fromId = getBoxIdByName(customPath[i].from);
-            const toId = getBoxIdByName(customPath[i].to);
-            if (toId) {
-              document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
-              document.getElementById(toId).classList.add('active');
-            }
-            // Find the arrow between from and to
-            let arrowId = null;
-            if (fromId && toId) {
-              if (fromId === 'frontend' && toId === 'partition') arrowId = 'arrow1';
-              else if (fromId === 'partition' && toId === 'frontend') arrowId = 'arrow1';
-              else if (fromId === 'frontend' && toId.startsWith('partitionserver')) arrowId = 'arrow2';
-              else if (fromId === 'partition' && toId.startsWith('partitionserver')) arrowId = 'arrow2';
-              else if (fromId.startsWith('partitionserver') && toId === 'streammanager') arrowId = 'arrow3';
-              else if (fromId === 'streammanager' && toId.startsWith('extent')) arrowId = 'arrow4';
-            }
-            if (arrowId) {
-              const arrowEl = document.getElementById(arrowId);
-              if (arrowEl) {
-                arrowEl.classList.add('active-arrow', 'arrow-right');
-                setArrowDirection(arrowEl, 'right');
-              }
-            }
-            i++;
-            setTimeout(highlightStep, 800);
+          document.querySelectorAll('.diagram-arrow').forEach(a => a.classList.remove('active-arrow', 'arrow-left', 'arrow-right'));
+          if (k < returnSteps.length) {
+            highlightBox(returnSteps[k].box);
+            highlightArrow(returnSteps[k].arrow, 'left');
+            k++;
+            setTimeout(animateReturnStep, 600);
           } else {
-            // Only reverse-animate the main request path (skip handshake steps)
-            let handshakeSteps = 0;
-            if (customPath.length >= 3 && customPath[0].from === 'Front-End Service' && customPath[0].to === 'Partition Manager' && customPath[1].from === 'Partition Manager' && customPath[1].to === 'Front-End Service') {
-              handshakeSteps = 2;
-            }
-            let j = customPath.length - 1;
-            function highlightReturn() {
-              console.log('highlightReturn called, j =', j, 'handshakeSteps =', handshakeSteps);
-              document.querySelectorAll('.diagram-arrow').forEach(a => {
-                a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
-                setArrowDirection(a, 'right');
-              });
-              document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active', 'return'));
-              if (j >= handshakeSteps) {
-                const fromId = getBoxIdByName(customPath[j].from);
-                if (fromId) {
-                  document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('return'));
-                  document.getElementById(fromId).classList.add('return');
-                }
-                // Use the same arrow logic as above
-                let arrowId = null;
-                const step = customPath[j];
-                console.log('Return step:', step && step.from, '->', step && step.to);
-                // Swap for return path
-                const returnFrom = step && step.to;
-                const returnTo = step && step.from;
-                if (
-                  (returnFrom === 'Front-End Service' && returnTo === 'Partition Manager') ||
-                  (returnFrom === 'Partition Manager' && returnTo === 'Front-End Service')
-                ) arrowId = 'arrow1';
-                else if (
-                  (returnFrom === 'Front-End Service' && returnTo.startsWith('Partition Server')) ||
-                  (returnFrom.startsWith('Partition Server') && returnTo === 'Front-End Service') ||
-                  (returnFrom === 'Partition Manager' && returnTo.startsWith('Partition Server')) ||
-                  (returnFrom.startsWith('Partition Server') && returnTo === 'Partition Manager')
-                ) arrowId = 'arrow2';
-                else if (
-                  (returnFrom.startsWith('Partition Server') && returnTo === 'Stream Manager') ||
-                  (returnFrom === 'Stream Manager' && returnTo.startsWith('Partition Server'))
-                ) arrowId = 'arrow3';
-                else if (
-                  (returnFrom === 'Stream Manager' && returnTo.startsWith('Extent Node')) ||
-                  (returnFrom.startsWith('Extent Node') && returnTo === 'Stream Manager')
-                ) arrowId = 'arrow4';
-                // After arrowId logic
-                console.log('Matching:', {returnFrom, returnTo, arrowId});
-                if (arrowId) {
-                  const arrowEl = document.getElementById(arrowId);
-                  if (arrowEl) {
-                    arrowEl.classList.remove('arrow-right');
-                    arrowEl.classList.add('active-arrow', 'arrow-left');
-                    console.log('Setting left arrow for', arrowId, 'at j =', j);
-                    setArrowDirection(arrowEl, 'left');
-                  }
-                }
-                j--;
-                setTimeout(highlightReturn, 600);
-              } else {
-                // Reset all after response
-                document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active', 'return'));
-                document.querySelectorAll('.diagram-arrow').forEach(a => {
-                  a.classList.remove('active-arrow', 'arrow-left', 'arrow-right');
-                });
-                const resultDiv = document.createElement('div');
-                if (data.result === 'success') {
-                  resultDiv.className = 'success get-result';
-                  resultDiv.innerHTML = data.message;
-                } else {
-                  resultDiv.className = 'error get-result';
-                  resultDiv.innerHTML = data.message;
-                }
-                resultDiv.style.opacity = 0;
-                getSimulation.appendChild(resultDiv);
-                setTimeout(() => {
-                  resultDiv.style.transition = 'opacity 0.7s, box-shadow 0.7s';
-                  resultDiv.style.opacity = 1;
-                  resultDiv.style.boxShadow = '0 0 16px 2px #764ba2';
-                }, 400);
-              }
-            }
-            setTimeout(highlightReturn, 700);
+            // Show success message
+            document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.diagram-arrow').forEach(a => a.classList.remove('active-arrow', 'arrow-left', 'arrow-right'));
+            getSimulation.innerHTML += `<div class='success get-result'>File retrieved successfully from Extent Node ${smData.extentNodeId}</div>`;
           }
         }
-        function getBoxIdByName(name) {
-          if (name === 'Front-End Service') return 'frontend';
-          if (name === 'Partition Manager') return 'partition';
-          if (name === 'Stream Manager') return 'streammanager';
-          if (name.startsWith('Partition Server')) return 'partitionserver' + name.split(' ')[2];
-          if (name.startsWith('Extent Node')) return 'extent' + name.split(' ')[2];
-          return null;
-        }
-        data.components.forEach((comp, idx) => {
-          const boxId = getBoxIdByName(comp.name);
-          if (boxId && comp.status === 'down') {
-            document.getElementById(boxId).classList.add('down');
-          }
-        });
-        document.querySelectorAll('.diagram-arrow').forEach(a => setArrowDirection(a, 'right'));
+        animateReturnStep();
+        return;
       } catch (err) {
-        getSimulation.innerHTML = '<div class="error">Error simulating GET request.</div>';
+        // Mark failed component as down
+        if (err && err.step) markDown(err.step);
+        document.querySelectorAll('.diagram-box').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.diagram-arrow').forEach(a => a.classList.remove('active-arrow', 'arrow-left', 'arrow-right'));
+        getSimulation.innerHTML += `<div class='error get-result'>${err.msg || err.message || 'Error during simulation'}</div>`;
       }
     });
   }

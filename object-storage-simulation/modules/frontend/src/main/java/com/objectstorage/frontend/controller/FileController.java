@@ -18,7 +18,7 @@ public class FileController {
     private final List<Map<String, String>> migrationLog = new ArrayList<>();
 
     // In-memory state for component statuses
-    private final Map<String, String> componentStatus = new HashMap<>();
+    public static final Map<String, String> componentStatus = new HashMap<>();
 
     // Track partition server assignments: file name -> partition server
     private final Map<String, String> fileToPartitionServer = new HashMap<>();
@@ -26,7 +26,7 @@ public class FileController {
     private final List<String> pmLeaderElectionLog = new ArrayList<>();
 
     // For each file: store its primary and two secondary extent nodes
-    private final Map<String, List<String>> fileToExtentNodes = new HashMap<>();
+    public static final Map<String, List<String>> fileToExtentNodes = new HashMap<>();
 
     // Configurable group sizes
     private static final int PARTITION_SERVER_COUNT = 3;
